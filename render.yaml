@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: allingo-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: ICE_STUN_URLS
+        value: stun:stun.l.google.com:19302
+      - key: TRUST_PROXY
+        value: 1
+      - key: CALL_RING_TIMEOUT_SECONDS
+        value: 45
+      - key: INVITE_EXPIRY_MINUTES
+        value: 15

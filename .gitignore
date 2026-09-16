@@ -1,0 +1,16 @@
+**/node_modules/
+**/dist/
+**/build/
+**/.gradle/
+**/local.properties
+**/.env
+**/.env.local
+**/google-services.json
+**/*service-account*.json
+**/*.jks
+**/*.keystore
+**/.idea/
+**/*debug.log
+firebase/emulator-data/
+.tools/
+output/
