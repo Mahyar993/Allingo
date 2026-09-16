@@ -11,17 +11,30 @@ const schema = z.object({
   TRUST_PROXY: z.coerce.number().min(0).max(5).default(0),
 });
 export function loadConfig() {
-  const c = schema.parse(process.env);
-  if (
-    c.NODE_ENV === "production" &&
-    (process.env.FIREBASE_AUTH_EMULATOR_HOST ||
-      process.env.FIRESTORE_EMULATOR_HOST ||
-      c.FIREBASE_PROJECT_ID.startsWith("demo-") ||
-      !c.PUBLIC_BASE_URL.startsWith("https://"))
-  )
-    throw new Error(
-      "Production requires real Firebase, HTTPS, and no emulator hosts",
-    );
+  const c = schema.parse({
+    ...process.env,
+    PUBLIC_BASE_URL:
+      process.env.PUBLIC_BASE_URL?.trim() ||
+      process.env.RENDER_EXTERNAL_URL?.trim() ||
+      undefined,
+  });
+  if (c.NODE_ENV === "production") {
+    const problems: string[] = [];
+    for (const key of [
+      "FIREBASE_AUTH_EMULATOR_HOST",
+      "FIRESTORE_EMULATOR_HOST",
+    ]) {
+      if (process.env[key]) problems.push(`Remove ${key} in production`);
+    }
+    if (c.FIREBASE_PROJECT_ID.startsWith("demo-"))
+      problems.push("Set FIREBASE_PROJECT_ID to your real Firebase project ID");
+    if (new URL(c.PUBLIC_BASE_URL).protocol !== "https:")
+      problems.push(
+        "Set PUBLIC_BASE_URL to an HTTPS URL, or leave it unset on Render to use RENDER_EXTERNAL_URL",
+      );
+    if (problems.length)
+      throw new Error(`Invalid production configuration: ${problems.join("; ")}`);
+  }
   return c;
 }
 export type Config = ReturnType<typeof loadConfig>;
