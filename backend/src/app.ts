@@ -51,7 +51,7 @@ export function createApp(
   calls.onUpdate = (c) => {
     io.to(c.caller).to(c.callee).emit("call:update", c);
   };
-  app.get("/health", (_q, r) => r.json({ status: "ok", service: "allingo" }));
+  app.get("/health", (_q, r) => r.json({ status: "ok", service: "allingo", callHeartbeat: true }));
   const token = async (value: unknown) => {
     if (typeof value !== "string" || value.length > 8192)
       throw new ApiError(401, "unauthorized");
@@ -115,6 +115,10 @@ export function createApp(
     app.post(`/api/calls/:id/${action}`, async (q, r) =>
       r.json(await calls.change(r.locals.uid, id.parse(q.params.id), action)),
     );
+  app.post("/api/calls/:id/heartbeat", async (q, r) => {
+    await calls.heartbeat(r.locals.uid, id.parse(q.params.id));
+    r.json({ ok: true });
+  });
   app.get("/api/call-history", async (_q, r) => {
     const data = await deps.store.list<{ createdAt: number }>(
       `callHistory/${r.locals.uid}/items`,

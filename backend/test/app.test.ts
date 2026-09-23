@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import { io as client } from "socket.io-client";
 import { createApp } from "../src/app.js";
@@ -76,6 +76,7 @@ describe("Allingo API and signaling", () => {
         .send({ username: uid });
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await service.close();
   });
   it("health and authentication", async () => {
@@ -192,6 +193,43 @@ describe("Allingo API and signaling", () => {
     expect((await service.calls.get("bob", c.id)).state).toBe("missed");
     expect(await store.get("busy/bob")).toBeUndefined();
   });
+  it("renews connected video calls over five minutes through HTTP and rejects outsiders", async () => {
+    const c = await service.calls.start("alice", "bob", "video", crypto.randomUUID());
+    await service.calls.change("bob", c.id, "accept");
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    expect((await request(service.app).post(`/api/calls/${c.id}/heartbeat`)).status).toBe(401);
+    expect((await request(service.app).post(`/api/calls/${c.id}/heartbeat`).set(auth("eve"))).status).toBe(404);
+    for (let i = 0; i < 16; i++) {
+      now += 20000;
+      expect((await request(service.app).post(`/api/calls/${c.id}/heartbeat`)
+        .set(auth(i % 2 ? "bob" : "alice"))).body.ok).toBe(true);
+      await service.calls.sweep();
+      expect((await service.calls.get("alice", c.id)).state).toBe("connected");
+    }
+    now += 120001;
+    await service.calls.sweep();
+    expect((await service.calls.get("alice", c.id)).state).toBe("failed");
+    expect((await request(service.app).post(`/api/calls/${c.id}/heartbeat`).set(auth())).status).toBe(404);
+  });
+  it("does not end a call renewed after the sweep snapshot", async () => {
+    const c = (await start()).body;
+    const connected = await service.calls.change("bob", c.id, "accept");
+    const expired = { ...connected, expiresAt: Date.now() - 1 };
+    store.data.set(`activeCalls/${c.id}`, expired);
+    await service.calls.heartbeat("bob", c.id);
+    vi.spyOn(store, "list").mockResolvedValueOnce([expired]);
+    await service.calls.sweep();
+    expect((await service.calls.get("alice", c.id)).state).toBe("connected");
+    expect(await store.get("busy/alice")).toBeDefined();
+  });
+  it("does not timeout a ringing snapshot accepted before cleanup", async () => {
+    const c = (await start()).body;
+    await service.calls.change("bob", c.id, "accept");
+    vi.spyOn(store, "list").mockResolvedValueOnce([{ ...c, expiresAt: Date.now() - 1 }]);
+    await service.calls.sweep();
+    expect((await service.calls.get("bob", c.id)).state).toBe("connected");
+  });
   it("expires invites and validates their input", async () => {
     const res = await request(service.app).post("/api/invites").set(auth());
     expect(res.body.token).toHaveLength(43);
@@ -266,6 +304,10 @@ describe("Allingo API and signaling", () => {
       kind: "offer",
       sdp: "v=0\r\n",
     };
+    expect((await new Promise<any>((resolve) =>
+      a.emit("call:heartbeat", { callId: c.id }, resolve))).ok).toBe(true);
+    expect((await new Promise<any>((resolve) =>
+      e.emit("call:heartbeat", { callId: c.id }, resolve))).ok).toBe(false);
     const received = new Promise<any>((resolve) =>
       b.once("webrtc:signal", resolve),
     );

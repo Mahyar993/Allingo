@@ -83,6 +83,11 @@ export class Calls {
         (await tx.get<Call>(`callHistory/${uid}/items/${callId}`));
       participant(current, uid);
       if (terminal.has(current.state)) return current;
+      // The sweep's list is only a snapshot. An accept or heartbeat may have
+      // renewed this call before this transaction acquired its current value.
+      if (system && ["timeout", "fail"].includes(action) &&
+          (current.expiresAt > Date.now() ||
+           (action === "timeout" && current.state !== "ringing"))) return current;
       if (
         !system &&
         (action === "accept" || action === "reject") &&
@@ -117,6 +122,7 @@ export class Calls {
       const next = {
         ...current,
         state,
+        ...(system && state === "failed" ? { endReason: "session_expired" } : {}),
         acceptedAt: state === "connected" ? now : current.acceptedAt,
         endedAt: terminal.has(state) ? now : null,
         expiresAt: now + 120000,
@@ -148,8 +154,8 @@ export class Calls {
     await this.store.transaction(async (tx) => {
       const c = await tx.get<Call>(`activeCalls/${callId}`);
       participant(c, uid);
-      if (c.state === "connected")
-        tx.set(`activeCalls/${callId}`, {
+      if (c.state !== "connected") throw new ApiError(409, "invalid_call_state");
+      tx.set(`activeCalls/${callId}`, {
           ...c,
           expiresAt: Date.now() + 120000,
         });
